@@ -1,0 +1,9 @@
+__pycache__/
+build/
+dist/
+*.swf
+*.ttf
+*.otf
+*.spec
+debug_*.csv
+csv_export/
