@@ -398,6 +398,8 @@ def write_gpak(output_path, entries, data_start, original_gpak, patch_files):
                 while remaining > 0:
                     to_read = min(remaining, buf_size)
                     data = fs_in.read(to_read)
+                    if not data:
+                        raise IOError(f"GPAK数据读取异常: 文件 '{entry['name']}' 剩余 {remaining} 字节未读取，可能文件已损坏")
                     fs_out.write(data)
                     remaining -= len(data)
 
@@ -538,9 +540,19 @@ def main():
             print(f"  [缺失] {json_name}")
     print()
 
-    # 读取GPAK索引
-    print("正在读取GPAK索引...")
-    with open(gpak_path, 'rb') as fs:
+    # 备份原始GPAK（必须在读取索引之前，确保有干净的原始文件）
+    backup_path = gpak_path + '.bak'
+    if not os.path.isfile(backup_path):
+        print("正在备份原始GPAK...")
+        shutil.copy2(gpak_path, backup_path)
+        print(f"  备份已保存: {backup_path}")
+    else:
+        print(f"  备份已存在: {backup_path}")
+
+    # 始终从备份（原始GPAK）读取索引，避免从已打补丁的文件读取
+    source_gpak = backup_path if os.path.isfile(backup_path) else gpak_path
+    print(f"正在读取GPAK索引（源: {os.path.basename(source_gpak)}）...")
+    with open(source_gpak, 'rb') as fs:
         entries, data_start = read_gpak_index(fs)
     print(f"  文件总数: {len(entries)}")
 
@@ -574,8 +586,8 @@ def main():
         csv_name = os.path.basename(name)
         translations = all_translations.get(csv_name, {})
 
-        # 从GPAK提取原始CSV
-        raw_bytes = extract_file_from_gpak(gpak_path, entries, data_start, name)
+        # 从原始GPAK提取CSV
+        raw_bytes = extract_file_from_gpak(source_gpak, entries, data_start, name)
         if raw_bytes is None:
             continue
 
@@ -622,7 +634,7 @@ def main():
             try:
                 from font_to_swf import convert_font_to_swf
                 # 从GPAK提取原始unicodefont.swf
-                orig_swf = extract_file_from_gpak(gpak_path, entries, data_start, 'swfs/unicodefont.swf')
+                orig_swf = extract_file_from_gpak(source_gpak, entries, data_start, 'swfs/unicodefont.swf')
                 if orig_swf:
                     def font_progress(msg):
                         print(f"  {msg}")
@@ -639,21 +651,13 @@ def main():
             print()
     print()
 
-    # 备份原文件
-    backup_path = gpak_path + '.bak'
-    if not os.path.isfile(backup_path):
-        print("正在备份原始GPAK...")
-        shutil.copy2(gpak_path, backup_path)
-        print(f"  备份已保存: {backup_path}")
-    else:
-        print(f"  备份已存在: {backup_path}")
     print()
 
     # 写入新GPAK
     output_path = gpak_path + '.new'
     print("正在生成补丁GPAK...")
     start_time = time.time()
-    patched = write_gpak(output_path, entries, data_start, gpak_path, patch_files)
+    patched = write_gpak(output_path, entries, data_start, source_gpak, patch_files)
     elapsed = time.time() - start_time
     out_size = os.path.getsize(output_path) / (1024*1024*1024)
     print(f"  替换了 {patched} 个文件")
