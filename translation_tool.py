@@ -376,6 +376,10 @@ def patch_csv_bytes(raw_bytes, translations, target_lang=CN_TARGET_LANG, wrap_wi
         if name == target_lang:
             target_col_idx = idx
 
+    if target_col_idx < 0:
+        header_stripped_noeol = header.rstrip('\r\n')
+        header_ending = header[len(header_stripped_noeol):]
+        header = header_stripped_noeol + ',' + target_lang + header_ending
     output_parts = [header]
     translated_count = 0
     for row in rows[1:]:
