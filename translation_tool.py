@@ -84,7 +84,14 @@ Luck=幸运, Strength=力量, Familiar=使魔, Champion=勇者, Elite=精英, Al
 Bounty=悬赏, Counter Attack=反击, Reflect=反射, Rot=腐烂, Mutation=变异
 Passive=被动, Ability=技能, Spell=法术, Basic Attack=普攻, Ranged=远程, Melee=近战
 Tile=格, Round=回合, Turn=回合, Downed=倒下, Corpse=尸体
-Buff=增益, Debuff=减益, Crit=暴击, Stack=层, Leeches=水蛭"""
+Buff=增益, Debuff=减益, Crit=暴击, Stack=层, Leeches=水蛭
+
+## 地名术语表（必须统一）
+The Alley=后巷, The Sewers=下水道, The Junkyard=垃圾场, The Caves=洞穴
+The Boneyard=乱葬岗, The Throbbing Domain=搏动禁域, The Desert=荒漠
+The Crater=陨石坑, The Bunker=地堡, The Moon=月球, The Core=地核
+The Rift=裂隙, The Lab=实验室, The Ice Age=冰河世纪, The Jurassic=侏罗纪
+Das Füture=未来, The End=终焉, The Infinite=无尽, Boon County=福恩郡"""
 
 
 # ==================== GPAK/CSV工具函数 ====================
@@ -573,7 +580,7 @@ class TranslationToolApp:
         # 工具栏
         toolbar = ttk.Frame(tab)
         toolbar.pack(fill='x', pady=(0, 5))
-        ttk.Button(toolbar, text="从游戏读取文本", command=self._read_gpak).pack(side='left', padx=2)
+        ttk.Button(toolbar, text="从游戏导出CSV文本", command=self._read_gpak).pack(side='left', padx=2)
 
         ttk.Separator(toolbar, orient='vertical').pack(side='left', padx=8, fill='y')
         ttk.Label(toolbar, text="文件:").pack(side='left')
@@ -807,11 +814,16 @@ class TranslationToolApp:
         # 字体选择
         font_frame = ttk.LabelFrame(tab, text="字体设置", padding=10)
         font_frame.pack(fill='x', pady=(0, 5))
-        ttk.Label(font_frame, text="字体文件 (.ttf/.otf):").grid(row=0, column=0, sticky='w')
+        ttk.Label(font_frame, text="TTF/OTF字体 (需转换):").grid(row=0, column=0, sticky='w')
         self.font_path_var = tk.StringVar()
-        ttk.Entry(font_frame, textvariable=self.font_path_var, width=55).grid(row=0, column=1, sticky='we', padx=5)
+        ttk.Entry(font_frame, textvariable=self.font_path_var, width=45).grid(row=0, column=1, sticky='we', padx=5)
         ttk.Button(font_frame, text="浏览", command=self._browse_font).grid(row=0, column=2, padx=2)
-        ttk.Label(font_frame, text="留空则不替换字体，使用游戏默认字体", foreground='gray').grid(row=1, column=1, sticky='w', padx=5)
+        ttk.Button(font_frame, text="转换并导出SWF", command=self._convert_and_export_font).grid(row=0, column=3, padx=2)
+        ttk.Label(font_frame, text="预转换字体SWF (直接使用):").grid(row=1, column=0, sticky='w', pady=(5,0))
+        self.font_swf_var = tk.StringVar()
+        ttk.Entry(font_frame, textvariable=self.font_swf_var, width=45).grid(row=1, column=1, sticky='we', padx=5, pady=(5,0))
+        ttk.Button(font_frame, text="浏览", command=self._browse_font_swf).grid(row=1, column=2, padx=2, pady=(5,0))
+        ttk.Label(font_frame, text="留空则不替换字体。优先使用SWF文件，可避免转换耗时和内存问题", foreground='gray').grid(row=2, column=1, columnspan=3, sticky='w', padx=5)
         font_frame.columnconfigure(1, weight=1)
 
         # 要替换的CSV文件列表
@@ -872,12 +884,11 @@ class TranslationToolApp:
             messagebox.showwarning("提示", "请先设置游戏目录")
             return
         gpak_path = os.path.join(game_dir, "resources.gpak")
-        bak_path = gpak_path + '.bak'
-        # 优先读取备份（原始未打补丁的GPAK）
-        read_path = bak_path if os.path.isfile(bak_path) else gpak_path
-        if not os.path.isfile(read_path):
-            messagebox.showerror("错误", f"未找到 {read_path}")
+        if not os.path.isfile(gpak_path):
+            messagebox.showerror("错误", "未找到resources.gpak文件")
             return
+        # 默认读取当前的resources.gpak（保证读取最新游戏版本）
+        read_path = gpak_path
 
         self.game_dir = game_dir
         self.gpak_path = gpak_path
@@ -922,7 +933,8 @@ class TranslationToolApp:
         if file_names:
             self.file_combo.current(0)
             self._on_file_selected(None)
-        self.status_var.set(f"已读取 {len(self.all_data)} 个文件，{total_keys} 条可翻译文本，{total_cn} 条已翻译")
+        csv_dir = self._get_csv_dir()
+        self.status_var.set(f"已导出 {len(self.all_data)} 个CSV文件到: {csv_dir}  |  {total_keys} 条可翻译文本，{total_cn} 条已翻译")
         # 刷新AI翻译页和补丁页的文件列表
         self._refresh_translate_files()
         self._refresh_patch_files()
@@ -964,10 +976,8 @@ class TranslationToolApp:
             d = self.csv_dir_var.get().strip()
             os.makedirs(d, exist_ok=True)
             return d
-        # 默认：游戏目录下的csv_export
-        if self.game_dir:
-            d = os.path.join(self.game_dir, 'csv_export')
-        elif getattr(sys, 'frozen', False):
+        # 默认：程序当前路径下的csv_export
+        if getattr(sys, 'frozen', False):
             d = os.path.join(os.path.dirname(sys.executable), 'csv_export')
         else:
             d = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'csv_export')
@@ -1065,7 +1075,8 @@ class TranslationToolApp:
         row_no = 0
         for key, langs in csv_data.items():
             en = langs.get('en', '')
-            cn = cn_data.get(key, '')
+            # 优先从all_data的schinese列获取，其次从translations获取
+            cn = langs.get(CN_TARGET_LANG, '') or cn_data.get(key, '')
             # 英文为空的行不计入统计，也不算未翻译
             if not en.strip():
                 if self.untranslated_only_var.get():
@@ -1110,7 +1121,8 @@ class TranslationToolApp:
         csv_data = self.all_data.get(self.current_file, {})
         langs = csv_data.get(key, {})
         en = langs.get('en', '')
-        cn = self.translations.get(self.current_file, {}).get(key, '')
+        # 优先从all_data的schinese列获取，其次从translations获取
+        cn = langs.get(CN_TARGET_LANG, '') or self.translations.get(self.current_file, {}).get(key, '')
 
         self.edit_key_var.set(key)
         self.edit_en_var.set(en)
@@ -1136,9 +1148,10 @@ class TranslationToolApp:
             cn_display = cn_text.replace('\n', '↵ ')[:200]
             self.tree.item(self._editing_item, values=(row_no, key, en_display, cn_display))
 
-        # 直接保存到CSV文件
+        # 直接写入CSV文件
         self._auto_save_translations(self.current_file)
-        self.status_var.set(f"已保存: {key}")
+        csv_dir = self._get_csv_dir()
+        self.status_var.set(f"已保存: {key} → {os.path.join(csv_dir, self.current_file)}")
 
     def _save_all(self):
         """保存所有翻译到CSV文件（schinese列）"""
@@ -1284,7 +1297,7 @@ class TranslationToolApp:
     def _start_translate(self):
         """开始AI翻译"""
         if not self.all_data:
-            messagebox.showwarning("提示", "请先在「文本管理」中从游戏读取文本")
+            messagebox.showwarning("提示", "请先在「文本管理」中从游戏导出CSV文本")
             return
         try:
             client_config = self._get_client_config()
@@ -1721,6 +1734,105 @@ class TranslationToolApp:
         )
         if path:
             self.font_path_var.set(path)
+    
+    def _browse_font_swf(self):
+        path = filedialog.askopenfilename(
+            title="选择预转换字体SWF文件",
+            filetypes=[("SWF文件", "*.swf"), ("所有文件", "*.*")]
+        )
+        if path:
+            self.font_swf_var.set(path)
+    
+    def _convert_and_export_font(self):
+        """转换TTF/OTF字体为SWF并导出"""
+        font_path = self.font_path_var.get().strip()
+        if not font_path or not os.path.isfile(font_path):
+            messagebox.showwarning("提示", "请先选择TTF/OTF字体文件")
+            return
+        
+        game_dir = self.game_dir_var.get().strip()
+        if not game_dir:
+            messagebox.showwarning("提示", "请先设置游戏目录（需要提取原始字体模板）")
+            return
+        
+        gpak_path = os.path.join(game_dir, "resources.gpak")
+        if not os.path.isfile(gpak_path):
+            messagebox.showerror("错误", "未找到resources.gpak文件")
+            return
+        
+        # 保存到源字体文件所在目录
+        font_dir = os.path.dirname(font_path)
+        font_name = os.path.splitext(os.path.basename(font_path))[0]
+        save_path = os.path.join(font_dir, f"{font_name}_unicodefont.swf")
+        
+        # 创建进度窗口
+        progress_win = tk.Toplevel(self.root)
+        progress_win.title("转换字体中...")
+        progress_win.geometry("500x300")
+        progress_win.transient(self.root)
+        
+        progress_text = tk.Text(progress_win, wrap='word', height=15)
+        progress_text.pack(fill='both', expand=True, padx=10, pady=10)
+        progress_text.configure(state='disabled')
+        
+        def update_progress(msg):
+            progress_text.configure(state='normal')
+            progress_text.insert('end', msg + '\n')
+            progress_text.see('end')
+            progress_text.configure(state='disabled')
+            progress_text.update()
+        
+        # 在后台线程中转换
+        def do_convert():
+            try:
+                from font_to_swf import convert_font_to_swf
+                
+                # 提取原始字体模板
+                self.root.after(0, lambda: update_progress("提取原始字体模板..."))
+                with open(gpak_path, 'rb') as fs:
+                    entries, data_start = read_gpak_index(fs)
+                orig_swf = extract_file_from_gpak(gpak_path, entries, data_start, 'swfs/unicodefont.swf')
+                
+                if not orig_swf:
+                    self.root.after(0, lambda: update_progress("[错误] 无法从GPAK提取原始字体模板"))
+                    self.root.after(0, lambda: messagebox.showerror("错误", "无法从GPAK提取原始字体模板"))
+                    self.root.after(0, progress_win.destroy)
+                    return
+                
+                self.root.after(0, lambda: update_progress(f"开始转换字体: {os.path.basename(font_path)}"))
+                
+                # 转换字体，实时显示进度
+                def log_progress(msg):
+                    self.root.after(0, lambda m=msg: update_progress(m))
+                
+                new_swf = convert_font_to_swf(font_path, orig_swf, log_progress)
+                
+                # 保存文件
+                self.root.after(0, lambda: update_progress(f"\n保存文件到: {save_path}"))
+                with open(save_path, 'wb') as f:
+                    f.write(new_swf)
+                
+                # 显示成功消息
+                self.root.after(0, lambda: update_progress(f"\n=== 转换完成 ==="))
+                self.root.after(0, lambda: update_progress(f"文件大小: {len(new_swf)/1024/1024:.2f} MB"))
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "转换完成", 
+                    f"字体SWF已保存至:\n{save_path}\n\n大小: {len(new_swf)/1024/1024:.2f} MB"
+                ))
+                self.root.after(0, progress_win.destroy)
+                
+            except MemoryError:
+                self.root.after(0, lambda: update_progress("\n[错误] 内存不足！"))
+                self.root.after(0, lambda: messagebox.showerror("错误", "内存不足，字体文件过大\n建议：\n1. 关闭其他程序释放内存\n2. 使用字符数更少的字体"))
+                self.root.after(0, progress_win.destroy)
+            except Exception as e:
+                import traceback
+                err = traceback.format_exc()
+                self.root.after(0, lambda: update_progress(f"\n[错误] {str(e)}"))
+                self.root.after(0, lambda: messagebox.showerror("错误", f"字体转换失败:\n{str(e)}\n\n{err[:500]}"))
+                self.root.after(0, progress_win.destroy)
+        
+        threading.Thread(target=do_convert, daemon=True).start()
 
     def _log_patch(self, msg):
         def _do():
@@ -1805,7 +1917,10 @@ class TranslationToolApp:
 
                 # 加载并处理用户选中的CSV文件（去除旧换行→按用户设置重新换行）
                 self._log_patch("处理CSV文件（应用换行设置）...")
-                wrap_chars = int(self.wrap_width_var.get()) if hasattr(self, 'wrap_width_var') else 15
+                try:
+                    wrap_chars = int(self.wrap_width_var.get()) if hasattr(self, 'wrap_width_var') else 15
+                except (ValueError, TypeError):
+                    wrap_chars = 15
                 wrap_width = wrap_chars * 2 if wrap_chars > 0 else None
                 self._log_patch(f"  换行字数: {wrap_chars}（{'不换行' if wrap_width is None else f'显示宽度{wrap_width}'}）")
                 selected_set = set(csv_files)
@@ -1838,20 +1953,44 @@ class TranslationToolApp:
                 self._log_patch(f"  共替换 {len(patch_files)} 个CSV文件")
 
                 # 字体替换
-                if font_path and os.path.isfile(font_path):
+                font_swf_path = self.font_swf_var.get().strip()
+                # 优先使用预转换的SWF文件
+                if font_swf_path and os.path.isfile(font_swf_path):
+                    self._log_patch(f"使用预转换字体SWF: {os.path.basename(font_swf_path)}")
+                    try:
+                        with open(font_swf_path, 'rb') as f:
+                            new_swf = f.read()
+                        patch_files['swfs/unicodefont.swf'] = new_swf
+                        self._log_patch(f"  字体替换完成: {len(new_swf)/1024/1024:.1f} MB")
+                    except Exception as e:
+                        self._log_patch(f"  [错误] 读取SWF文件失败: {e}")
+                        self._log_patch("  将继续使用默认字体")
+                # 如果没有SWF，尝试转换TTF/OTF
+                elif font_path and os.path.isfile(font_path):
                     self._log_patch(f"正在转换字体: {os.path.basename(font_path)}")
                     self._log_patch("（这可能需要1-3分钟，请耐心等待...）")
                     try:
                         from font_to_swf import convert_font_to_swf
                         orig_swf = extract_file_from_gpak(gpak_path, entries, data_start, 'swfs/unicodefont.swf')
                         if orig_swf:
-                            new_swf = convert_font_to_swf(font_path, orig_swf, lambda msg: self._log_patch(f"  {msg}"))
+                            # 使用线程安全的进度回调
+                            def safe_progress(msg):
+                                try:
+                                    self._log_patch(f"  {msg}")
+                                except Exception:
+                                    pass
+                            new_swf = convert_font_to_swf(font_path, orig_swf, safe_progress)
                             patch_files['swfs/unicodefont.swf'] = new_swf
                             self._log_patch(f"  字体转换完成: {len(new_swf)/1024/1024:.1f} MB")
                         else:
                             self._log_patch("  [错误] 无法从GPAK提取原始字体")
+                    except MemoryError:
+                        self._log_patch("  [错误] 内存不足，字体文件过大")
+                        self._log_patch("  建议：1) 使用字符数更少的字体 2) 使用预转换SWF文件")
                     except Exception as e:
+                        import traceback
                         self._log_patch(f"  [错误] 字体转换失败: {e}")
+                        self._log_patch(f"  详细错误: {traceback.format_exc()[:500]}")
                         self._log_patch("  将继续使用默认字体")
 
                 # 备份

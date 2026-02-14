@@ -1,6 +1,6 @@
-# Mewgenics 游戏汉化工具箱 v1.0
+# Mewgenics 咪咪汉化工具箱 v1.0
 
-一款为 **Mewgenics**（喵喵的结合）游戏打造的一站式中文汉化工具，集成文本提取、AI翻译、手动编辑、补丁打包等全部功能。
+一款为 **Mewgenics**（猫基因）游戏打造的一站式中文汉化工具，集成文本提取、AI翻译、手动编辑、补丁打包等全部功能。
 
 > Mewgenics 是由 Edmund McMillen（《以撒的结合》《超级肉肉哥》作者）和 Tyler Glaiel 开发的回合制猫咪战术肉鸽游戏。
 
@@ -138,11 +138,10 @@ python translation_tool.py
 
 ```bash
 pip install pyinstaller
-# Windows
-pyinstaller --onefile --name "游戏汉化工具箱" translation_tool.py
+pyinstaller "游戏汉化工具箱.spec" --noconfirm
 ```
 
-或直接运行项目中的 `build_exe.bat`（会同时打包补丁工具和恢复工具）。
+或直接运行项目中的 `build_exe.bat`。
 
 打包后的文件在 `dist/` 目录中。
 
@@ -182,11 +181,9 @@ pyinstaller --onefile --name "游戏汉化工具箱" translation_tool.py
 MewgenicsCN/
 ├── translation_tool.py      # 主程序（GUI 汉化工具箱）
 ├── font_to_swf.py           # 字体转换模块（TTF/OTF → SWF）
-├── mewgenics_cn_patch.py    # 命令行补丁工具（独立使用）
-├── mewgenics_cn_restore.py  # 命令行还原工具
-├── translate_all.py         # 命令行批量翻译脚本
-├── build_exe.bat            # PyInstaller 打包脚本
 ├── 游戏汉化工具箱.spec       # PyInstaller 配置
+├── build_exe.bat            # PyInstaller 打包脚本
+├── git/                     # Git 仓库
 └── README.md
 ```
 

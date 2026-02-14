@@ -5,6 +5,8 @@
 """
 import struct
 import zlib
+import sys
+import gc
 from fontTools.ttLib import TTFont
 
 
@@ -105,13 +107,19 @@ def encode_tt_glyph(glyf_table, glyph_name, scale):
     直接从glyf表提取TrueType字形并编码为SWF SHAPE。
     TrueType轮廓是二次B样条，直接映射到SWF的二次贝塞尔。
     """
-    glyph = glyf_table[glyph_name]
+    try:
+        glyph = glyf_table[glyph_name]
+    except (KeyError, AttributeError):
+        return EMPTY_SHAPE
 
     # 复合字形需要先解析组件
     if glyph.isComposite():
         glyph_table_obj = glyf_table
         # 收集所有组件的坐标
-        coords, flags_arr, end_pts = _decompose_composite(glyf_table, glyph_name)
+        try:
+            coords, flags_arr, end_pts = _decompose_composite(glyf_table, glyph_name)
+        except Exception:
+            return EMPTY_SHAPE
         if coords is None or len(coords) == 0:
             return EMPTY_SHAPE
     else:
@@ -119,10 +127,13 @@ def encode_tt_glyph(glyf_table, glyph_name, scale):
             return EMPTY_SHAPE
         if not hasattr(glyph, 'coordinates') or len(glyph.coordinates) == 0:
             return EMPTY_SHAPE
-        # GlyphCoordinates直接迭代返回(x,y)元组
-        coords = list(glyph.coordinates)
-        flags_arr = list(glyph.flags)
-        end_pts = list(glyph.endPtsOfContours)
+        try:
+            # GlyphCoordinates直接迭代返回(x,y)元组
+            coords = list(glyph.coordinates)
+            flags_arr = list(glyph.flags)
+            end_pts = list(glyph.endPtsOfContours)
+        except (AttributeError, TypeError):
+            return EMPTY_SHAPE
 
     if not coords or not end_pts:
         return EMPTY_SHAPE
@@ -136,19 +147,23 @@ def encode_tt_glyph(glyf_table, glyph_name, scale):
     start_idx = 0
 
     for contour_end in end_pts:
-        n = contour_end - start_idx + 1
-        if n < 2:
+        try:
+            n = contour_end - start_idx + 1
+            if n < 2 or contour_end >= len(coords):
+                start_idx = contour_end + 1
+                continue
+
+            # 提取本轮廓的点和标志
+            c_coords = coords[start_idx:min(contour_end + 1, len(coords))]
+            c_flags = flags_arr[start_idx:min(contour_end + 1, len(flags_arr))]
             start_idx = contour_end + 1
-            continue
 
-        # 提取本轮廓的点和标志
-        c_coords = coords[start_idx:contour_end + 1]
-        c_flags = flags_arr[start_idx:contour_end + 1]
-        start_idx = contour_end + 1
-
-        # 生成SWF边缘列表：(type, data...)
-        edges = _tt_contour_to_edges(c_coords, c_flags, scale)
-        if not edges:
+            # 生成SWF边缘列表：(type, data...)
+            edges = _tt_contour_to_edges(c_coords, c_flags, scale)
+            if not edges:
+                continue
+        except (IndexError, ValueError, TypeError):
+            start_idx = contour_end + 1
             continue
 
         # 轮廓起始点
@@ -210,9 +225,13 @@ def _decompose_composite(glyf_table, glyph_name, depth=0):
     if not glyph.isComposite():
         if not hasattr(glyph, 'numberOfContours') or glyph.numberOfContours <= 0:
             return None, None, None
-        coords = list(glyph.coordinates)
-        flags = list(glyph.flags)
-        ends = list(glyph.endPtsOfContours)
+        try:
+            coords = list(glyph.coordinates)
+            flags = list(glyph.flags)
+            # 确保ends是整数列表，防止range或其他迭代器对象
+            ends = [int(e) for e in glyph.endPtsOfContours]
+        except (TypeError, ValueError, AttributeError):
+            return None, None, None
         # 坐标是扁平的(x0,y0,x1,y1,...) 还是元组列表? 
         # fontTools glyph.coordinates 是 GlyphCoordinates 对象，支持迭代返回(x,y)元组
         return coords, flags, ends
@@ -232,9 +251,17 @@ def _decompose_composite(glyf_table, glyph_name, depth=0):
 
         # 应用变换
         xx, xy, yx, yy, dx, dy = 1, 0, 0, 1, 0, 0
-        if hasattr(component, 'transform') and component.transform:
-            t = component.transform
-            xx, xy, yx, yy = t[0][0], t[0][1], t[1][0], t[1][1]
+        if hasattr(component, 'transform') and component.transform is not None:
+            try:
+                t = component.transform
+                # transform可能是Transform对象或元组
+                if hasattr(t, '__getitem__'):
+                    xx, xy, yx, yy = t[0][0], t[0][1], t[1][0], t[1][1]
+                elif hasattr(t, 'xx'):
+                    # Transform对象属性访问
+                    xx, xy, yx, yy = t.xx, t.xy, t.yx, t.yy
+            except (TypeError, IndexError, AttributeError):
+                pass
         dx = component.x if hasattr(component, 'x') else 0
         dy = component.y if hasattr(component, 'y') else 0
 
@@ -244,7 +271,8 @@ def _decompose_composite(glyf_table, glyph_name, depth=0):
             ny = round(cx * xy + cy * yy + dy)
             transformed.append((nx, ny))
 
-        shifted_ends = [e + offset for e in sub_ends]
+        # 确保sub_ends中每个元素都是整数，避免range对象
+        shifted_ends = [int(e) + offset for e in sub_ends]
         all_coords.extend(transformed)
         all_flags.extend(sub_flags)
         all_ends.extend(shifted_ends)
@@ -265,6 +293,13 @@ def _tt_contour_to_edges(coords, flags, scale):
     - flag & 1 = 0 → off-curve (二次贝塞尔控制点)
     - 两个连续off-curve点之间有隐含的on-curve中点
     """
+    # 确保coords和flags是列表而不是迭代器
+    try:
+        coords = list(coords)
+        flags = [int(f) for f in flags]
+    except (TypeError, ValueError):
+        return []
+    
     n = len(coords)
     if n < 2:
         return []
@@ -458,40 +493,77 @@ def convert_font_to_swf(ttf_path, original_swf_bytes, progress_cb=None):
     glyph_bounds = []
 
     for idx, cp in enumerate(all_codepoints):
-        code_table.append(cp)
+        try:
+            code_table.append(cp)
 
-        # 控制字符：零宽空字形
-        if cp in CTRL_CHARS:
+            # 控制字符：零宽空字形
+            if cp in CTRL_CHARS:
+                glyph_shapes.append(EMPTY_SHAPE)
+                advance_widths.append(0)
+                glyph_bounds.append((0, 0, 0, 0))
+                continue
+
+            glyph_name = cmap.get(cp)
+            if not glyph_name:
+                # 字符无映射，使用空字形
+                glyph_shapes.append(EMPTY_SHAPE)
+                advance_widths.append(0)
+                glyph_bounds.append((0, 0, 0, 0))
+                continue
+
+            # 获取advance width
+            try:
+                if glyph_name in hmtx.metrics:
+                    aw, lsb = hmtx.metrics[glyph_name]
+                else:
+                    aw, lsb = units_per_em, 0
+                advance_widths.append(round(aw * scale))
+            except Exception:
+                advance_widths.append(round(units_per_em * scale))
+                aw = units_per_em
+
+            # 获取轮廓并编码为SWF shape
+            if glyph_name in glyf_table:
+                try:
+                    shape_bytes = encode_tt_glyph(glyf_table, glyph_name, scale)
+                except MemoryError:
+                    # 内存不足
+                    if progress_cb:
+                        progress_cb(f"  [内存不足] 字形 U+{cp:04X} 处理失败，尝试释放内存...")
+                    gc.collect()
+                    shape_bytes = EMPTY_SHAPE
+                except Exception as e:
+                    # 单个字形转换失败不中断整个流程
+                    if progress_cb:
+                        progress_cb(f"  警告: 字形 U+{cp:04X} ({glyph_name}) 转换失败: {str(e)[:50]}")
+                    shape_bytes = EMPTY_SHAPE
+            else:
+                shape_bytes = EMPTY_SHAPE
+
+            glyph_shapes.append(shape_bytes)
+
+            # 字形边界（简化处理）
+            glyph_bounds.append((0, round(aw * scale), round(-ascent), round(-descent)))
+
+            if progress_cb and (idx + 1) % 1000 == 0:
+                progress_cb(f"  转换字形: {idx+1}/{total_glyphs}")
+                # 定期垃圾回收，避免内存累积导致崩溃
+                gc.collect()
+        except MemoryError:
+            # 内存不足是最外层捕获
+            if progress_cb:
+                progress_cb(f"  [严重] 内存不足！建议：关闭其他程序或使用更小的字体")
+            gc.collect()
             glyph_shapes.append(EMPTY_SHAPE)
             advance_widths.append(0)
             glyph_bounds.append((0, 0, 0, 0))
-            continue
-
-        glyph_name = cmap[cp]
-
-        # 获取advance width
-        if glyph_name in hmtx.metrics:
-            aw, lsb = hmtx.metrics[glyph_name]
-        else:
-            aw, lsb = units_per_em, 0
-        advance_widths.append(round(aw * scale))
-
-        # 获取轮廓并编码为SWF shape
-        if glyph_name in glyf_table:
-            try:
-                shape_bytes = encode_tt_glyph(glyf_table, glyph_name, scale)
-            except Exception:
-                shape_bytes = EMPTY_SHAPE
-        else:
-            shape_bytes = EMPTY_SHAPE
-
-        glyph_shapes.append(shape_bytes)
-
-        # 字形边界（简化处理）
-        glyph_bounds.append((0, round(aw * scale), round(-ascent), round(-descent)))
-
-        if progress_cb and (idx + 1) % 1000 == 0:
-            progress_cb(f"  转换字形: {idx+1}/{total_glyphs}")
+        except Exception as e:
+            # 如果单个字形处理完全失败，用空字形代替
+            if progress_cb:
+                progress_cb(f"  错误: 处理字符 U+{cp:04X} 失败: {str(e)[:50]}")
+            glyph_shapes.append(EMPTY_SHAPE)
+            advance_widths.append(0)
+            glyph_bounds.append((0, 0, 0, 0))
 
     if progress_cb:
         progress_cb(f"  转换字形: {total_glyphs}/{total_glyphs}")
