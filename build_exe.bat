@@ -1,37 +1,53 @@
 @echo off
 chcp 65001 >nul
 echo ========================================
-echo  Mewgenics 中文补丁 - 打包为EXE
+echo  咪咪汉化工具箱 - 打包为EXE
 echo ========================================
 echo.
 
 REM 检查依赖
+echo 检查 Python 依赖...
 pip show pyinstaller >nul 2>&1
 if errorlevel 1 (
-    echo 正在安装PyInstaller...
+    echo 正在安装 PyInstaller...
     pip install pyinstaller
 )
 pip show fonttools >nul 2>&1
 if errorlevel 1 (
-    echo 正在安装fonttools...
+    echo 正在安装 fonttools...
     pip install fonttools
 )
-
-echo 正在打包补丁工具...
-pyinstaller --onefile --name "Mewgenics中文补丁" --add-data "translations;translations" --hidden-import=font_to_swf --hidden-import=fontTools --hidden-import=fontTools.ttLib --hidden-import=fontTools.pens.recordingPen --collect-submodules fontTools --console mewgenics_cn_patch.py
+pip show json-repair >nul 2>&1
+if errorlevel 1 (
+    echo 正在安装 json-repair...
+    pip install json-repair
+)
+pip show openai >nul 2>&1
+if errorlevel 1 (
+    echo 正在安装 openai...
+    pip install openai
+)
+pip show httpx >nul 2>&1
+if errorlevel 1 (
+    echo 正在安装 httpx...
+    pip install httpx
+)
 
 echo.
-echo 正在打包恢复工具...
-pyinstaller --onefile --name "Mewgenics中文补丁_恢复" --console mewgenics_cn_restore.py
+echo 正在打包咪咪汉化工具箱...
+pyinstaller "游戏汉化工具箱.spec" --noconfirm --clean
 
 echo.
 echo ========================================
-echo  打包完成！文件位于 dist\ 目录
+echo  打包完成！
 echo ========================================
 echo.
-echo 分发时需要的文件:
-echo   dist\Mewgenics中文补丁.exe
-echo   dist\Mewgenics中文补丁_恢复.exe
-echo   (可选) 将.ttf/.otf字体文件放在exe同目录下
+echo 输出文件:
+echo   dist\游戏汉化工具箱.exe
+echo.
+echo 使用说明:
+echo   1. 双击运行 exe 文件
+echo   2. 设置游戏目录
+echo   3. 使用工具进行翻译和打补丁
 echo.
 pause
