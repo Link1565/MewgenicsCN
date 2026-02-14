@@ -18,7 +18,7 @@ import threading
 import warnings
 warnings.filterwarnings("ignore", message=".*timestamp.*")
 
-VERSION = "1.0"
+VERSION = "1.1"
 
 # AI供应商预设 (名称, base_url, 默认模型列表)
 AI_PROVIDERS = [
