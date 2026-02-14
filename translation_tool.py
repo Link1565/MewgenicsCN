@@ -1530,7 +1530,7 @@ class TranslationToolApp:
                         {"role": "user", "content": user_msg},
                     ],
                     temperature=temperature,
-                    max_tokens=4096,
+                    max_tokens=16384,
                 )
                 api_elapsed = time.time() - t0
                 raw_content = resp.choices[0].message.content or ''
@@ -1540,6 +1540,20 @@ class TranslationToolApp:
                 c_tok = getattr(usage, 'completion_tokens', 0) if usage else 0
                 if usage:
                     self._update_token_stats(p_tok, c_tok)
+
+                # 检测截断：finish_reason为length表示输出被token上限截断
+                finish_reason = getattr(resp.choices[0], 'finish_reason', None)
+                if finish_reason == 'length':
+                    self._log_translate(f"  [批{batch_idx+1}] 响应被截断(finish_reason=length)，回退逐条翻译")
+                    for key, langs in batch_items:
+                        if self.translate_stop_event.is_set():
+                            return
+                        self._do_translate_single(
+                            ctx, csv_name, key, langs,
+                            done_count, err_count, result_lock, file_total,
+                            global_done,
+                        )
+                    return
 
                 # 使用json_repair解析（比json.loads更健壮）
                 result_dict = json_repair.loads(raw_content.strip())
@@ -1632,9 +1646,13 @@ class TranslationToolApp:
                         {"role": "user", "content": user_msg},
                     ],
                     temperature=ctx['temperature'],
-                    max_tokens=2048,
+                    max_tokens=4096,
                 )
                 raw = resp.choices[0].message.content or ''
+                # 检测单条截断
+                finish_reason = getattr(resp.choices[0], 'finish_reason', None)
+                if finish_reason == 'length' and attempt < 2:
+                    raise Exception("单条响应被截断，重试")
                 result = raw.strip().strip('"').strip("'")
                 for prefix in ['翻译：', '翻译:', '中文翻译：', '中文：', '中文:', '翻译结果：', '翻译结果:']:
                     if result.startswith(prefix):
