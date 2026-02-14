@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-游戏汉化工具箱 - 通用AI翻译工具
+咪咪汉化工具箱 - 通用AI翻译工具
 集成文本读取、多供应商AI翻译、手动编辑、补丁应用等功能
 """
 import tkinter as tk
@@ -511,7 +511,7 @@ def update_settings(game_dir, lang):
 class TranslationToolApp:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"喵喵汉化工具箱 v{VERSION}")
+        self.root.title(f"咪咪汉化工具箱 v{VERSION}")
         self.root.geometry("1200x950")
         self.root.minsize(900, 600)
 
@@ -1796,18 +1796,10 @@ class TranslationToolApp:
         def worker():
             try:
                 gpak_path = os.path.join(game_dir, "resources.gpak")
-                backup_path = gpak_path + '.bak'
 
-                # 先备份，确保有原始GPAK可用
-                if not os.path.isfile(backup_path):
-                    self._log_patch("备份原始GPAK...")
-                    shutil.copy2(gpak_path, backup_path)
-                    self._log_patch(f"  已备份: {backup_path}")
-
-                # 始终从备份（原始GPAK）读取索引，避免从已打补丁的文件读取
-                source_gpak = backup_path if os.path.isfile(backup_path) else gpak_path
-                self._log_patch(f"读取GPAK索引（源: {os.path.basename(source_gpak)}）...")
-                with open(source_gpak, 'rb') as fs:
+                # 读取GPAK索引
+                self._log_patch("读取GPAK索引...")
+                with open(gpak_path, 'rb') as fs:
                     entries, data_start = read_gpak_index(fs)
                 self._log_patch(f"  文件总数: {len(entries)}")
 
@@ -1851,7 +1843,7 @@ class TranslationToolApp:
                     self._log_patch("（这可能需要1-3分钟，请耐心等待...）")
                     try:
                         from font_to_swf import convert_font_to_swf
-                        orig_swf = extract_file_from_gpak(source_gpak, entries, data_start, 'swfs/unicodefont.swf')
+                        orig_swf = extract_file_from_gpak(gpak_path, entries, data_start, 'swfs/unicodefont.swf')
                         if orig_swf:
                             new_swf = convert_font_to_swf(font_path, orig_swf, lambda msg: self._log_patch(f"  {msg}"))
                             patch_files['swfs/unicodefont.swf'] = new_swf
@@ -1862,7 +1854,14 @@ class TranslationToolApp:
                         self._log_patch(f"  [错误] 字体转换失败: {e}")
                         self._log_patch("  将继续使用默认字体")
 
-                # 写入新GPAK（始终以原始GPAK为基础）
+                # 备份
+                backup_path = gpak_path + '.bak'
+                if not os.path.isfile(backup_path):
+                    self._log_patch("备份原始GPAK...")
+                    shutil.copy2(gpak_path, backup_path)
+                    self._log_patch(f"  已备份: {backup_path}")
+
+                # 写入新GPAK
                 output_path = gpak_path + '.new'
                 self._log_patch("正在写入补丁GPAK...")
 
@@ -1870,7 +1869,7 @@ class TranslationToolApp:
                     pct = done / total * 100
                     self.root.after(0, lambda: self.patch_progress_var.set(pct))
 
-                write_gpak(output_path, entries, data_start, source_gpak, patch_files, progress_cb)
+                write_gpak(output_path, entries, data_start, gpak_path, patch_files, progress_cb)
 
                 # 替换
                 os.replace(output_path, gpak_path)
