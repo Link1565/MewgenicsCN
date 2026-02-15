@@ -522,7 +522,7 @@ def update_settings(game_dir, lang):
 class TranslationToolApp:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"咪咪汉化工具箱 v{VERSION}")
+        self.root.title(f"咪咪汉化工具箱 v{VERSION}  |  B站：Link_啊呤")
         self.root.geometry("1200x950")
         self.root.minsize(900, 600)
 
